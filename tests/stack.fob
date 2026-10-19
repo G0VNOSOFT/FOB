@@ -1,0 +1,20 @@
+0xF4CK 0xFF B1NǎRY
+; PUSH/POP LIFO check
+0xA0 @0 "\n"
+0x10 r0 #AA
+0x10 r1 #BB
+0x10 r2 #CC
+0x14 r0              ; push AA
+0x14 r1              ; push BB
+0x14 r2              ; push CC
+0x15 r3              ; pop -> r3 = CC
+0x15 r4              ; pop -> r4 = BB
+0x15 r5              ; pop -> r5 = AA
+0x52 r3              ; 204
+0x10 r6 #0
+0x50 r6              ; newline
+0x52 r4              ; 187
+0x50 r6
+0x52 r5              ; 170
+0x50 r6
+0x01

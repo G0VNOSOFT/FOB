@@ -1,0 +1,25 @@
+0xF4CK 0xFF B1NǎRY
+; sum 1..N via recursion
+0xA0 @0 "\n"
+0x10 r0 #5           ; N = 5
+0x10 r1 #0           ; sum = 0
+0x43 :sum
+0x52 r1              ; PRINTI sum
+0x10 r3 #0
+0x50 r3              ; PRINTS "\n"
+0x01
+
+0x70 :sum
+0x10 r2 #0
+0x30 r0 r2           ; cmp N, 0
+0x41 :sum_done       ; jz -> base case
+0x14 r0              ; push N
+0x10 r4 #1
+0x21 r0 r4           ; N -= 1
+0x43 :sum            ; recurse
+0x15 r5              ; pop N
+0x20 r1 r5           ; sum += N
+0x44
+
+0x70 :sum_done
+0x44
