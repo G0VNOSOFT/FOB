@@ -14,6 +14,17 @@ _start:
     cmp rax, 2
     jb  usage
     mov rdi, [rsp+16]
+    cmp byte [rdi], '-'
+    jne .no_c_flag
+    cmp byte [rdi+1], 'c'
+    jne .no_c_flag
+    cmp byte [rdi+2], 0
+    jne .no_c_flag
+    cmp rax, 3
+    jb  usage
+    mov byte [checksum_mode], 1
+    mov rdi, [rsp+24]
+.no_c_flag:
 
     mov eax, 2
     xor esi, esi
@@ -401,11 +412,140 @@ pass1:
     ret
 
 ; =============================================================
+; checksum_verify — проверка |xx в конце строки (если есть)
+; вход: rbp = начало строки, rsi = указатель на начало строки
+; выход: rsi восстановлен, при mismatch — exit 5
+checksum_verify:
+    mov rax, rsi
+.cv_scan:
+    mov dl, [rax]
+    test dl, dl
+    jz .cv_no_checksum
+    cmp dl, 10
+    je .cv_no_checksum
+    cmp dl, ';'
+    je .cv_no_checksum
+    cmp dl, '|'
+    je .cv_try_checksum
+    cmp dl, '"'
+    je .cv_skip_str
+    inc rax
+    jmp .cv_scan
+.cv_skip_str:
+    inc rax
+.cv_str_loop:
+    mov dl, [rax]
+    test dl, dl
+    jz .cv_no_checksum
+    cmp dl, 10
+    je .cv_no_checksum
+    cmp dl, '"'
+    je .cv_str_done
+    cmp dl, 92
+    jne .cv_str_adv
+    inc rax
+    mov dl, [rax]
+    test dl, dl
+    jz .cv_no_checksum
+.cv_str_adv:
+    inc rax
+    jmp .cv_str_loop
+.cv_str_done:
+    inc rax
+    jmp .cv_scan
+.cv_try_checksum:
+    push rax
+    mov rcx, rax
+    inc rcx
+    mov al, [rcx]
+    call hex_val
+    cmp al, 16
+    jae .cv_not_checksum
+    inc rcx
+    mov al, [rcx]
+    call hex_val
+    cmp al, 16
+    jae .cv_not_checksum
+    inc rcx
+    mov al, [rcx]
+    test al, al
+    jz .cv_ok_format
+    cmp al, 10
+    je .cv_ok_format
+    cmp al, 13
+    je .cv_ok_format
+    cmp al, ' '
+    je .cv_ok_format
+    cmp al, 9
+    je .cv_ok_format
+    cmp al, ';'
+    je .cv_ok_format
+.cv_not_checksum:
+    pop rax
+    inc rax
+    jmp .cv_scan
+.cv_ok_format:
+    pop rax
+    mov r10, rax
+    mov rcx, rbp
+    xor r8, r8
+.cv_xor:
+    cmp rcx, r10
+    jae .cv_xor_done
+    xor r8b, [rcx]
+    inc rcx
+    jmp .cv_xor
+.cv_xor_done:
+    lea rsi, [r10 + 1]
+    call parse_hex
+    cmp rax, r8
+    je .cv_match
+    lea rsi, [msg_csum]
+    call write_str
+    mov edi, 5
+    mov eax, 60
+    syscall
+.cv_match:
+    mov rsi, rbp
+    ret
+.cv_no_checksum:
+    cmp byte [checksum_mode], 0
+    je .cv_no_c_ok
+    mov rax, rsi
+.cv_chk_empty:
+    mov dl, [rax]
+    test dl, dl
+    jz .cv_no_c_ok
+    cmp dl, 10
+    je .cv_no_c_ok
+    cmp dl, ' '
+    je .cv_chk_skip
+    cmp dl, 9
+    je .cv_chk_skip
+    cmp dl, 13
+    je .cv_chk_skip
+    cmp dl, ';'
+    je .cv_no_c_ok
+    lea rsi, [msg_missing_csum]
+    call write_str
+    mov edi, 6
+    mov eax, 60
+    syscall
+.cv_chk_skip:
+    inc rax
+    jmp .cv_chk_empty
+.cv_no_c_ok:
+    ret
+
+
+; =============================================================
 execute:
     lea rsi, [src_buf]
     call next_line
     mov rsi, rax
 .exec_loop:
+    mov rbp, rsi
+    call checksum_verify
     call skip_ws
     cmp byte [rsi], 0
     je  .exec_done
@@ -447,8 +587,18 @@ execute:
     je  .op_add
     cmp bl, 0x21
     je  .op_sub
+    cmp bl, 0x22
+    je  .op_mul
+    cmp bl, 0x23
+    je  .op_div
     cmp bl, 0x24
     je  .op_xor
+    cmp bl, 0x25
+    je  .op_mod
+    cmp bl, 0x26
+    je  .op_shl
+    cmp bl, 0x27
+    je  .op_shr
     cmp bl, 0x30
     je  .op_cmp
     cmp bl, 0x40
@@ -467,6 +617,8 @@ execute:
     je  .op_printc
     cmp bl, 0x52
     je  .op_printi
+    cmp bl, 0x60
+    je  .op_syscall
     cmp bl, 0x70
     je  .op_label_def
     cmp bl, 0xA0
@@ -713,6 +865,122 @@ execute:
     mov rsi, rax
     jmp .exec_loop
 
+.op_mul:
+    call skip_ws
+    call parse_reg
+    cmp rax, -1
+    je  .exec_bad
+    mov r14, rax
+    call skip_ws
+    call parse_reg
+    cmp rax, -1
+    je  .exec_bad
+    mov r15, rax
+    lea rdi, [regs]
+    mov rax, [rdi + r14*8]
+    mul qword [rdi + r15*8]
+    mov [rdi + r14*8], rax
+    jmp .next_instr
+
+.op_div:
+    call skip_ws
+    call parse_reg
+    cmp rax, -1
+    je  .exec_bad
+    mov r14, rax
+    call skip_ws
+    call parse_reg
+    cmp rax, -1
+    je  .exec_bad
+    mov r15, rax
+    lea rdi, [regs]
+    mov rcx, [rdi + r15*8]
+    test rcx, rcx
+    jz  .exec_bad
+    xor edx, edx
+    mov rax, [rdi + r14*8]
+    div rcx
+    mov [rdi + r14*8], rax
+    jmp .next_instr
+
+.op_mod:
+    call skip_ws
+    call parse_reg
+    cmp rax, -1
+    je  .exec_bad
+    mov r14, rax
+    call skip_ws
+    call parse_reg
+    cmp rax, -1
+    je  .exec_bad
+    mov r15, rax
+    lea rdi, [regs]
+    mov rcx, [rdi + r15*8]
+    test rcx, rcx
+    jz  .exec_bad
+    xor edx, edx
+    mov rax, [rdi + r14*8]
+    div rcx
+    mov [rdi + r14*8], rdx
+    jmp .next_instr
+
+.op_shl:
+    call skip_ws
+    call parse_reg
+    cmp rax, -1
+    je  .exec_bad
+    mov r14, rax
+    call skip_ws
+    call parse_reg
+    cmp rax, -1
+    je  .exec_bad
+    mov r15, rax
+    lea rdi, [regs]
+    mov rcx, [rdi + r15*8]
+    mov rax, [rdi + r14*8]
+    shl rax, cl
+    mov [rdi + r14*8], rax
+    jmp .next_instr
+
+.op_shr:
+    call skip_ws
+    call parse_reg
+    cmp rax, -1
+    je  .exec_bad
+    mov r14, rax
+    call skip_ws
+    call parse_reg
+    cmp rax, -1
+    je  .exec_bad
+    mov r15, rax
+    lea rdi, [regs]
+    mov rcx, [rdi + r15*8]
+    mov rax, [rdi + r14*8]
+    shr rax, cl
+    mov [rdi + r14*8], rax
+    jmp .next_instr
+
+.op_syscall:
+    push rsi
+    lea rdi, [regs]
+    mov rax, [rdi + 0*8]
+    mov r10, [rdi + 4*8]
+    mov r8,  [rdi + 5*8]
+    mov r9,  [rdi + 6*8]
+    mov rsi, [rdi + 2*8]
+    cmp rsi, MEM_SIZE
+    jae .sc_rsi_raw
+    lea rbx, [mem]
+    add rsi, rbx
+.sc_rsi_raw:
+    mov rdx, [rdi + 3*8]
+    mov rdi, [rdi + 1*8]
+    syscall
+    pop rsi
+    lea rdi, [regs]
+    mov [rdi + 0*8], rax
+    jmp .next_instr
+
 .op_prints:
     call skip_ws
     call parse_reg
@@ -828,12 +1096,15 @@ label_count: dq 0
 label_table: rb LABELS_MAX * 24
 tmp_char:    db 0
 stk_ptr:     dq MEM_SIZE
+checksum_mode: db 0
 tmp_num:     rb 32
 
 hdr_str: db '0xF4CK 0xFF B1N', 0xC7, 0x8E, 'RY'
 hdr_len = $ - hdr_str
 
-msg_usage: db 'FOB v0.1 | usage: fob <file.fob>', 10, 0
+msg_usage: db 'FOB v0.3 | usage: fob [-c] <file.fob>', 10, 0
 msg_open:  db 'FOB: cannot open file', 10, 0
 msg_hdr:   db 'FOB: invalid header', 10, 0
 msg_bad:   db 'FOB: syntax error', 10, 0
+msg_csum:  db 'FOB: checksum mismatch', 10, 0
+msg_missing_csum: db 'FOB: missing checksum (-c mode)', 10, 0
