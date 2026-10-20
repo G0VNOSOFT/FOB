@@ -31,7 +31,7 @@ def tokenize(line):
             while j < n:
                 if line[j] == '\\' and j+1 < n:
                     e = line[j+1]
-                    buf.append({'n':'\n','t':'\t','0':'\0','\\':'\\','"':'"'}.get(e, e))
+                    buf.append({'n':'\n','t':'\t','r':'\r','0':'\0','\\':'\\','"':'"'}.get(e, e))
                     j += 2
                 elif line[j] == '"':
                     j += 1; break
@@ -78,7 +78,7 @@ def validate(instrs, labels):
 
 LBL = lambda s: 'fob_L_' + s
 
-def emit(instrs):
+def emit(instrs, mode='elf'):
     out = []
     uid = [0]
     def U():
@@ -86,6 +86,8 @@ def emit(instrs):
     for idx, toks in enumerate(instrs):
         op = toks[0][1]; a = toks[1:]
         out.append(f"    ; --- line {idx}: {op} ---")
+        if mode == 'efi' and op in ('0x50','0x51','0x52','0x60'):
+            raise SystemExit(f"fobc: {op} not available in EFI mode (use 0x90 EFI_OUT + 0xA1 DATA16)")
         if op == '0x00':
             out.append("    nop")
         elif op == '0x01':
@@ -227,6 +229,65 @@ def emit(instrs):
             out.append("    mov r9,  [regs + 6*8]")
             out.append("    syscall")
             out.append("    mov [regs + 0*8], rax")
+        elif op == '0x90':  # EFI_OUT r
+            if mode != 'efi':
+                raise SystemExit("fobc: 0x90 EFI_OUT requires --efi")
+            r = int(a[0][1][1:], 16)
+            out.append("    mov rcx, [r12 + 0x40]")          # ST->ConOut
+            out.append(f"    mov rax, [regs + {r}*8]")
+            out.append("    lea rdx, [mem]")
+            out.append("    add rdx, rax")
+            out.append("    sub rsp, 32")
+            out.append("    call qword [rcx + 0x08]")          # ConOut->OutputString
+            out.append("    add rsp, 32")
+        elif op == '0x91':  # EFI_STALL #ms
+            if mode != 'efi':
+                raise SystemExit("fobc: 0x91 EFI_STALL requires --efi")
+            ms = int(a[0][1][1:], 16)
+            out.append(f"    mov rcx, 0x{ms:x}")
+            out.append("    mov rax, [r12 + 0x60]")            # ST->BootServices
+            out.append("    sub rsp, 32")
+            out.append("    call qword [rax + 0xF8]")          # BS->Stall
+            out.append("    add rsp, 32")
+        elif op == '0xA1':  # DATA16 — UTF-16-LE
+            ad = int(a[0][1][1:], 16); s = a[1][1]
+            for k, ch in enumerate(s):
+                out.append(f"    mov word [mem + 0x{ad+k*2:x}], 0x{ord(ch):04x}")
+            out.append(f"    mov word [mem + 0x{ad+len(s)*2:x}], 0")
+        elif op == '0x92':  # EFI_WAIT_KEY
+            if mode != 'efi':
+                raise SystemExit("fobc: 0x92 EFI_WAIT_KEY requires --efi")
+            u = U()
+            # ST->ConIn->WaitForKey
+            out.append("    mov rcx, [r12 + 0x30]")          # ST->ConIn
+            out.append("    mov rdx, [rcx + 0x08]")          # ConIn->WaitForKey
+            out.append("    sub rsp, 32")
+            out.append("    lea rcx, [rsp + 16]")            # &event (index)
+            out.append("    mov [rcx], rdx")
+            out.append("    mov r8, [r12 + 0x60]")            # ST->BootServices
+            out.append(f"    mov rcx, 1")                     # 1 event
+            out.append("    lea rdx, [rsp + 16]")            # &events
+            out.append("    lea r8, [rsp + 24]")             # &index (unused)
+            out.append("    mov r9, [r12 + 0x60]")
+            out.append("    mov r9, [r9 + 0xE0]")            # BS->WaitForEvent
+            out.append("    mov rcx, 1")
+            out.append("    lea rdx, [rsp + 16]")
+            out.append("    lea r8, [rsp + 24]")
+            out.append("    call r9")
+            out.append("    add rsp, 32")
+        elif op == '0x92':  # EFI_WAIT_KEY
+            if mode != 'efi':
+                raise SystemExit("fobc: 0x92 EFI_WAIT_KEY requires --efi")
+            out.append("    sub rsp, 48")
+            out.append("    mov rcx, [r12 + 0x30]")          # ST->ConIn
+            out.append("    mov rax, [rcx + 0x08]")          # ConIn->WaitForKey
+            out.append("    mov [rsp + 16], rax")            # events[0]
+            out.append("    mov rcx, 1")
+            out.append("    lea rdx, [rsp + 16]")
+            out.append("    lea r8,  [rsp + 24]")
+            out.append("    mov rax, [r12 + 0x60]")          # ST->BootServices
+            out.append("    call qword [rax + 0xE0]")        # BS->WaitForEvent
+            out.append("    add rsp, 48")
         elif op == '0x70':  # LABEL
             out.append(f"{LBL(a[0][1][1:])}:")
         elif op == '0xA0':  # DATA
@@ -238,9 +299,48 @@ def emit(instrs):
             raise SystemExit(f"fobc: unsupported opcode {op} at line {idx}")
     return out
 
-def build_asm(instrs, asm_path):
-    body = emit(instrs)
+def build_asm(instrs, asm_path, mode='elf'):
+    body = emit(instrs, mode=mode)
     A = []
+    if mode == 'efi':
+        A.append("format PE64 dll efi")
+        A.append("entry efi_main")
+        A.append(f"MEM_SIZE = {MEM_SIZE}")
+        A.append("section '.text' code readable executable")
+        A.append("efi_main:")
+        A.append("    push rbx")
+        A.append("    push rbp")
+        A.append("    push rdi")
+        A.append("    push rsi")
+        A.append("    push r12")
+        A.append("    push r13")
+        A.append("    push r14")
+        A.append("    push r15")
+        A.append("    mov [efi_saved_rsp], rsp")
+        A.append("    mov r12, rdx")               # SystemTable
+        A.extend(body)
+        A.append("fob_exit:")
+        A.append("    mov rsp, [efi_saved_rsp]")
+        A.append("    pop r15")
+        A.append("    pop r14")
+        A.append("    pop r13")
+        A.append("    pop r12")
+        A.append("    pop rsi")
+        A.append("    pop rdi")
+        A.append("    pop rbp")
+        A.append("    pop rbx")
+        A.append("    xor eax, eax")
+        A.append("    ret")
+        A.append("")
+        A.append("section '.data' data readable writeable")
+        A.append("regs: rq 16")
+        A.append("mem: rb 65536")
+        A.append("zf: db 0")
+        A.append("stk_ptr: dq 65536")
+        A.append("efi_saved_rsp: dq 0")
+        Path(asm_path).write_text('\n'.join(A) + '\n')
+        return
+
     A.append("format ELF64 executable 3")
     A.append("entry _start")
     A.append(f"MEM_SIZE = {MEM_SIZE}")
@@ -302,20 +402,25 @@ def build_asm(instrs, asm_path):
     Path(asm_path).write_text('\n'.join(A) + '\n')
 
 def main():
-    if len(sys.argv) != 3:
-        print("fobc: usage: fobc input.fob output"); sys.exit(1)
-    instrs = parse_fob(sys.argv[1])
+    args = sys.argv[1:]
+    mode = 'elf'
+    if '--efi' in args:
+        args.remove('--efi'); mode = 'efi'
+    if len(args) != 2:
+        print("fobc: usage: fobc [--efi] input.fob output"); sys.exit(1)
+    inp, outp = args
+    instrs = parse_fob(inp)
     labels = collect_labels(instrs)
     validate(instrs, labels)
     with tempfile.TemporaryDirectory() as td:
         asm = Path(td) / "out.asm"
-        build_asm(instrs, asm)
-        r = subprocess.run(["fasm", str(asm), sys.argv[2]], capture_output=True)
+        build_asm(instrs, asm, mode=mode)
+        r = subprocess.run(["fasm", str(asm), outp], capture_output=True)
         if r.returncode != 0:
             sys.stdout.buffer.write(r.stdout)
             sys.stderr.buffer.write(r.stderr)
             sys.exit(r.returncode)
-        print(f"fobc: {sys.argv[1]} -> {sys.argv[2]}")
+        print(f"fobc: [{mode}] {inp} -> {outp}")
 
 if __name__ == '__main__':
     main()
