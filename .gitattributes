@@ -1,0 +1,15 @@
+# FOB source files — treat as FOB language
+*.fob linguist-language=FOB
+*.asm linguist-language=FOB
+src/fob.asm linguist-language=FOB
+
+# Tools and tests are auxiliary — exclude from language statistics
+tools/*.py linguist-documentation
+tools/csum.py linguist-documentation
+tools/fobc.py linguist-documentation
+tests/run_tests.sh linguist-documentation
+Makefile linguist-documentation
+
+# Docs
+*.md linguist-documentation
+LICENSE linguist-documentation
