@@ -37,6 +37,11 @@ The same functionality must be implemented in three places:
 
 Ensure no build artifacts, backup files, or runtime files are included.
 
+## Maintainer
+
+FOB is maintained by G0VNOSOFT (https://github.com/G0VNOSOFT). Pull requests are
+welcome; review may take a few days since the maintainer is a single person.
+
 ## License
 
 By opening a pull request you agree to release your contribution under the MIT

@@ -225,3 +225,7 @@ Not implemented on purpose (reserved for 2.0):
 ## License
 
 MIT. See LICENSE.
+
+---
+
+Maintained by G0VNOSOFT (founded 2019).
