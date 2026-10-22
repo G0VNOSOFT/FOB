@@ -1,7 +1,26 @@
 # FOB - 0xF4CK 0xFF B1NʎRY
 
+![version](https://img.shields.io/badge/version-1.0-blue)
+![license](https://img.shields.io/badge/license-MIT-green)
+![platform](https://img.shields.io/badge/platform-Linux%20%7C%20UEFI-orange)
+
 A low-level programming language. Hex opcodes. 16 registers. Direct memory access.
 Compiles to native x86-64 ELF or to UEFI PE32+ .efi.
+
+## Contents
+
+- [What it is](#what-it-is)
+- [Requirements](#requirements)
+- [Build](#build)
+- [Quick start](#quick-start)
+- [Examples](#examples)
+- [Install](#install)
+- [Tools](#tools)
+- [Status](#status)
+- [Philosophy](#philosophy)
+- [Documentation](#documentation)
+- [License](#license)
+
 
 - version: 1.0
 - license: MIT
