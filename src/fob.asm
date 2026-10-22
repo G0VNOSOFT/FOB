@@ -16,14 +16,39 @@ _start:
     mov rdi, [rsp+16]
     cmp byte [rdi], '-'
     jne .no_c_flag
+    cmp byte [rdi+1], '-'
+    je  .long_flag
+    cmp byte [rdi+1], 'v'
+    je  .version
+    cmp byte [rdi+1], 'h'
+    je  .help
     cmp byte [rdi+1], 'c'
-    jne .no_c_flag
+    jne usage
     cmp byte [rdi+2], 0
-    jne .no_c_flag
+    jne usage
     cmp rax, 3
     jb  usage
     mov byte [checksum_mode], 1
     mov rdi, [rsp+24]
+    jmp .no_c_flag
+.long_flag:
+    cmp byte [rdi+2], 'v'
+    je  .version
+    cmp byte [rdi+2], 'h'
+    je  .help
+    jmp usage
+.version:
+    lea rsi, [msg_version]
+    call write_str
+    xor edi, edi
+    mov eax, 60
+    syscall
+.help:
+    lea rsi, [msg_help]
+    call write_str
+    xor edi, edi
+    mov eax, 60
+    syscall
 .no_c_flag:
 
     mov eax, 2
@@ -170,6 +195,73 @@ write_int:
     pop rdx
     pop rcx
     pop rbx
+    ret
+
+; =============================================================
+; calc_line_no — считает номер строки файла до текущей позиции rbp
+; возвращает в EAX (1-based)
+calc_line_no:
+    push rsi
+    push rcx
+    push rdi
+    lea rsi, [src_buf]
+    xor ecx, ecx
+.cln_loop:
+    cmp rsi, rbp
+    jae .cln_done
+    cmp byte [rsi], 10
+    jne .cln_next
+    inc ecx
+.cln_next:
+    inc rsi
+    jmp .cln_loop
+.cln_done:
+    inc ecx
+    mov eax, ecx
+    pop rdi
+    pop rcx
+    pop rsi
+    ret
+
+; =============================================================
+; write_hex8 — печатает младший байт AL как два hex-символа
+write_hex8:
+    push rax
+    push rcx
+    push rdx
+    push rsi
+    push rdi
+    push r11
+    mov rcx, rax
+    lea rsi, [tmp_hex]
+    mov rdx, rcx
+    shr rdx, 4
+    and rdx, 0xF
+    cmp dl, 10
+    jb  .hx_d1
+    add dl, 'a' - 10 - '0'
+.hx_d1:
+    add dl, '0'
+    mov [rsi], dl
+    mov rdx, rcx
+    and rdx, 0xF
+    cmp dl, 10
+    jb  .hx_d2
+    add dl, 'a' - 10 - '0'
+.hx_d2:
+    add dl, '0'
+    mov [rsi+1], dl
+    mov byte [rsi+2], 0
+    mov eax, 1
+    mov edi, 1
+    mov rdx, 2
+    syscall
+    pop r11
+    pop rdi
+    pop rsi
+    pop rdx
+    pop rcx
+    pop rax
     ret
 
 ; =============================================================
@@ -566,6 +658,7 @@ execute:
     shl bl, 4
     or  bl, al
     add rsi, 2
+    mov [current_op], bl
 
     cmp bl, 0x00
     je  .op_nop
@@ -583,6 +676,8 @@ execute:
     je  .op_push
     cmp bl, 0x15
     je  .op_pop
+    cmp bl, 0x16
+    je  .op_input
     cmp bl, 0x1A
     je  .op_loadr
     cmp bl, 0x1B
@@ -657,6 +752,8 @@ execute:
     je  .op_label_def
     cmp bl, 0xA0
     je  .op_data
+    cmp bl, 0xA2
+    je  .op_strl
     jmp .exec_bad
 
 .op_nop:
@@ -900,6 +997,134 @@ execute:
     mov [stk_ptr], rcx
     mov rsi, rax
     jmp .exec_loop
+
+.op_input:
+    call skip_ws
+    call parse_reg
+    cmp rax, -1
+    je  .exec_bad
+    mov r14, rax
+    call skip_ws
+    call parse_reg
+    cmp rax, -1
+    je  .exec_bad
+    mov r15, rax
+    push rsi
+    push rbx
+    push rbp
+    lea rdi, [regs]
+    mov r10, [rdi + r14*8]
+    mov rbp, [rdi + r15*8]
+    test rbp, rbp
+    jz  .op_input_zero
+    dec rbp
+    lea rdi, [mem]
+    add r10, rdi
+    xor rbx, rbx
+.op_input_loop:
+    cmp rbx, rbp
+    jae .op_input_fin
+    lea rsi, [r10 + rbx]
+    xor eax, eax
+    xor edi, edi
+    mov rdx, 1
+    syscall
+    test rax, rax
+    jle .op_input_fin
+    cmp byte [r10 + rbx], 10
+    je  .op_input_fin
+    cmp byte [r10 + rbx], 13
+    je  .op_input_fin
+    inc rbx
+    jmp .op_input_loop
+.op_input_fin:
+    mov byte [r10 + rbx], 0
+    lea rdi, [regs]
+    mov [rdi + r15*8], rbx
+    pop rbp
+    pop rbx
+    pop rsi
+    jmp .next_instr
+.op_input_zero:
+    lea rdi, [regs]
+    mov qword [rdi + r15*8], 0
+    pop rbp
+    pop rbx
+    pop rsi
+    jmp .next_instr
+
+.op_strl:
+    call skip_ws
+    cmp byte [rsi], '@'
+    jne .exec_bad
+    inc rsi
+    call parse_hex
+    cmp rax, MEM_SIZE - 1
+    jae .exec_bad
+    mov r14, rax
+    call skip_ws
+    cmp byte [rsi], '"'
+    jne .exec_bad
+    inc rsi
+    mov rdi, rsi
+    xor rcx, rcx
+.op_strl_cnt:
+    mov al, [rdi + rcx]
+    test al, al
+    jz  .op_strl_cnt_done
+    cmp al, '"'
+    je  .op_strl_cnt_done
+    cmp al, 92
+    jne .op_strl_cnt_adv
+    inc rcx
+    mov al, [rdi + rcx]
+    test al, al
+    jz  .exec_bad
+.op_strl_cnt_adv:
+    inc rcx
+    jmp .op_strl_cnt
+.op_strl_cnt_done:
+    cmp rcx, 255
+    ja  .exec_bad
+    lea rdi, [mem]
+    add rdi, r14
+    mov [rdi], cl
+    inc rdi
+.op_strl_copy:
+    mov al, [rsi]
+    test al, al
+    jz  .exec_bad
+    cmp al, '"'
+    je  .op_strl_done
+    cmp al, 92
+    jne .op_strl_store
+    inc rsi
+    mov al, [rsi]
+    cmp al, 'n'
+    jne .op_strl_t
+    mov al, 10
+    jmp .op_strl_store
+.op_strl_t:
+    cmp al, 't'
+    jne .op_strl_r
+    mov al, 9
+    jmp .op_strl_store
+.op_strl_r:
+    cmp al, 'r'
+    jne .op_strl_z
+    mov al, 13
+    jmp .op_strl_store
+.op_strl_z:
+    xor al, al
+.op_strl_store:
+    mov [rdi], al
+    inc rdi
+    inc rsi
+    jmp .op_strl_copy
+.op_strl_done:
+    mov byte [rdi], 0
+    inc rsi
+    jmp .next_instr
 
 .op_loadr:
     call skip_ws
@@ -1365,7 +1590,17 @@ execute:
     jmp .exec_loop
 
 .exec_bad:
-    lea rsi, [msg_bad]
+    call calc_line_no
+    mov [err_line], eax
+    lea rsi, [msg_bad_prefix]
+    call write_str
+    mov eax, [err_line]
+    call write_int
+    lea rsi, [msg_bad_op]
+    call write_str
+    movzx eax, byte [current_op]
+    call write_hex8
+    lea rsi, [msg_bad_end]
     call write_str
     mov edi, 4
     mov eax, 60
@@ -1387,14 +1622,25 @@ tmp_char:    db 0
 stk_ptr:     dq MEM_SIZE
 checksum_mode: db 0
 saved_flags: dq 0
+current_op:  db 0
+err_line:    dd 0
+tmp_hex:     rb 8
 tmp_num:     rb 32
 
 hdr_str: db '0xF4CK 0xFF B1N', 0xC7, 0x8E, 'RY'
 hdr_len = $ - hdr_str
 
-msg_usage: db 'FOB v0.3 | usage: fob [-c] <file.fob>', 10, 0
-msg_open:  db 'FOB: cannot open file', 10, 0
-msg_hdr:   db 'FOB: invalid header', 10, 0
-msg_bad:   db 'FOB: syntax error', 10, 0
+msg_usage:   db 'FOB v0.8 | usage: fob [-c] <file.fob>', 10, 0
+msg_version: db 'FOB v0.8', 10, 0
+msg_help:    db 'FOB v0.8 — 0xF4CK 0xFF B1N', 0xC7, 0x8E, 'RY interpreter', 10
+             db 'usage: fob [options] <file.fob>', 10
+             db '  -c           require checksum |XX on every instruction', 10
+             db '  -v --version print version and exit', 10
+             db '  -h --help    print this help and exit', 10, 0
+msg_open:    db 'FOB: cannot open file', 10, 0
+msg_hdr:     db 'FOB: invalid header', 10, 0
+msg_bad_prefix: db 'FOB: syntax error at line ', 0
+msg_bad_op:     db ' (op=0x', 0
+msg_bad_end:    db ')', 10, 0
 msg_csum:  db 'FOB: checksum mismatch', 10, 0
 msg_missing_csum: db 'FOB: missing checksum (-c mode)', 10, 0

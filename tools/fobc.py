@@ -3,6 +3,7 @@
 
 Usage: fobc input.fob output
 """
+import re
 import sys, subprocess, tempfile
 from pathlib import Path
 
@@ -56,25 +57,26 @@ def parse_fob(path):
         raise SystemExit(f"fobc: invalid header in {path}")
     body = data[nl+1:].decode('latin-1')
     instrs = []
-    for raw in body.split('\n'):
+    for raw_no, raw in enumerate(body.split('\n'), start=2):
         toks = tokenize(strip_checksum(raw))
-        if toks: instrs.append(toks)
+        if toks: instrs.append((raw_no, toks))
     return instrs
 
 def collect_labels(instrs):
     labels = {}
-    for idx, toks in enumerate(instrs):
+    for line_no, toks in instrs:
         if toks[0] == ('tok', '0x70') and len(toks) >= 2 and toks[1][1].startswith(':'):
-            labels[toks[1][1][1:]] = idx
+            labels[toks[1][1][1:]] = line_no
     return labels
 
 def validate(instrs, labels):
-    for idx, toks in enumerate(instrs):
+    for line_no, toks in instrs:
         op = toks[0][1]
-        if op in ('0x40','0x41','0x42','0x43') and len(toks) >= 2 and toks[1][1].startswith(':'):
+        if op in ('0x40','0x41','0x42','0x43','0x45','0x46','0x47','0x48',
+                  '0x49','0x4A','0x4B','0x4C') and len(toks) >= 2 and toks[1][1].startswith(':'):
             ref = toks[1][1][1:]
             if ref not in labels:
-                raise SystemExit(f"fobc: undefined label ':{ref}' at line {idx}")
+                raise SystemExit(f"fobc: undefined label ':{ref}' at line {line_no}")
 
 LBL = lambda s: 'fob_L_' + s
 
@@ -83,9 +85,9 @@ def emit(instrs, mode='elf'):
     uid = [0]
     def U():
         uid[0] += 1; return uid[0]
-    for idx, toks in enumerate(instrs):
+    for line_no, toks in instrs:
         op = toks[0][1]; a = toks[1:]
-        out.append(f"    ; --- line {idx}: {op} ---")
+        out.append(f"    ; --- line {line_no}: {op} ---")
         if mode == 'efi' and op in ('0x50','0x51','0x52','0x60'):
             raise SystemExit(f"fobc: {op} not available in EFI mode (use 0x90 EFI_OUT + 0xA1 DATA16)")
         if op == '0x00':
@@ -163,6 +165,112 @@ def emit(instrs, mode='elf'):
             out.append(f"    mov rax, [regs + {r1}*8]")
             out.append("    shr rax, cl")
             out.append(f"    mov [regs + {r1}*8], rax")
+        elif op == '0x16' and mode == 'efi':  # INPUT via ConIn
+            u = U()
+            rp = int(a[0][1][1:], 16); rl = int(a[1][1][1:], 16)
+            out.append(f"    mov r14, {rp}")
+            out.append(f"    mov r15, {rl}")
+            out.append("    lea rdi, [regs]")
+            out.append("    mov r13, [rdi + r14*8]")
+            out.append("    lea rdi, [mem]")
+            out.append("    add r13, rdi")
+            out.append("    lea rdi, [regs]")
+            out.append("    mov r14, [rdi + r15*8]")
+            out.append("    test r14, r14")
+            out.append(f"    jz .fobiepz{u}")
+            out.append("    dec r14")
+            out.append("    xor rbx, rbx")
+            out.append(f".fobiepl{u}:")
+            out.append("    sub rsp, 48")
+            out.append("    mov rcx, [r12 + 0x30]")
+            out.append("    mov rax, [rcx + 0x08]")
+            out.append("    mov [rsp + 16], rax")
+            out.append("    mov rcx, 1")
+            out.append("    lea rdx, [rsp + 16]")
+            out.append("    lea r8,  [rsp + 24]")
+            out.append("    mov rax, [r12 + 0x60]")
+            out.append("    call qword [rax + 0xE0]")
+            out.append("    mov rcx, [r12 + 0x30]")
+            out.append("    lea rdx, [rsp + 32]")
+            out.append("    call qword [rcx + 0x10]")
+            out.append("    movzx eax, word [rsp + 34]")
+            out.append("    add rsp, 48")
+            out.append("    cmp ax, 0x0D")
+            out.append(f"    je .fobiepe{u}")
+            out.append("    cmp ax, 0x08")
+            out.append(f"    je .fobiepb{u}")
+            out.append("    cmp rbx, r14")
+            out.append(f"    jae .fobiepl{u}")
+            out.append("    mov [r13 + rbx], al")
+            out.append("    inc rbx")
+            out.append(f"    jmp .fobiepl{u}")
+            out.append(f".fobiepb{u}:")
+            out.append("    test rbx, rbx")
+            out.append(f"    jz .fobiepl{u}")
+            out.append("    dec rbx")
+            out.append(f"    jmp .fobiepl{u}")
+            out.append(f".fobiepe{u}:")
+            out.append("    mov byte [r13 + rbx], 0")
+            out.append("    lea rdi, [regs]")
+            out.append("    mov [rdi + r15*8], rbx")
+            out.append(f"    jmp .fobiepd{u}")
+            out.append(f".fobiepz{u}:")
+            out.append("    lea rdi, [regs]")
+            out.append("    mov qword [rdi + r15*8], 0")
+            out.append(f".fobiepd{u}:")
+        elif op == '0x16':  # INPUT r_ptr r_len (ELF: read syscall, byte-by-byte)
+            u = U()
+            rp = int(a[0][1][1:], 16); rl = int(a[1][1][1:], 16)
+            out.append(f"    mov r14, {rp}")
+            out.append(f"    mov r15, {rl}")
+            out.append("    push rbx")
+            out.append("    push rbp")
+            out.append("    lea rdi, [regs]")
+            out.append("    mov r10, [rdi + r14*8]")
+            out.append("    mov rbp, [rdi + r15*8]")
+            out.append("    test rbp, rbp")
+            out.append(f"    jz .fobinpz{u}")
+            out.append("    dec rbp")
+            out.append("    lea rdi, [mem]")
+            out.append("    add r10, rdi")
+            out.append("    xor rbx, rbx")
+            out.append(f".fobinpl{u}:")
+            out.append("    cmp rbx, rbp")
+            out.append(f"    jae .fobinpf{u}")
+            out.append("    lea rsi, [r10 + rbx]")
+            out.append("    xor eax, eax")
+            out.append("    xor edi, edi")
+            out.append("    mov rdx, 1")
+            out.append("    syscall")
+            out.append("    test rax, rax")
+            out.append(f"    jle .fobinpf{u}")
+            out.append("    cmp byte [r10 + rbx], 10")
+            out.append(f"    je .fobinpf{u}")
+            out.append("    cmp byte [r10 + rbx], 13")
+            out.append(f"    je .fobinpf{u}")
+            out.append("    inc rbx")
+            out.append(f"    jmp .fobinpl{u}")
+            out.append(f".fobinpf{u}:")
+            out.append("    mov byte [r10 + rbx], 0")
+            out.append("    lea rdi, [regs]")
+            out.append("    mov [rdi + r15*8], rbx")
+            out.append("    pop rbp")
+            out.append("    pop rbx")
+            out.append(f"    jmp .fobinpd{u}")
+            out.append(f".fobinpz{u}:")
+            out.append("    lea rdi, [regs]")
+            out.append("    mov qword [rdi + r15*8], 0")
+            out.append("    pop rbp")
+            out.append("    pop rbx")
+            out.append(f".fobinpd{u}:")
+        elif op == '0xA2':  # STRL — length-prefixed string
+            ad = int(a[0][1][1:], 16); s = a[1][1]
+            if len(s) > 255:
+                raise SystemExit(f"fobc: STRL string > 255 bytes at line {line_no}")
+            out.append(f"    mov byte [mem + 0x{ad:x}], {len(s)}")
+            for k, ch in enumerate(s):
+                out.append(f"    mov byte [mem + 0x{ad+1+k:x}], 0x{ord(ch):x}")
+            out.append(f"    mov byte [mem + 0x{ad+1+len(s):x}], 0")
         elif op == '0x1A':  # LOADR r_dst r_ptr
             r1 = int(a[0][1][1:], 16); r2 = int(a[1][1][1:], 16)
             out.append(f"    mov rcx, [regs + {r2}*8]")
@@ -528,7 +636,7 @@ def emit(instrs, mode='elf'):
                 out.append(f"    mov byte [mem + 0x{ad+k:x}], 0x{ord(ch):x}")
             out.append(f"    mov byte [mem + 0x{ad+len(s):x}], 0")
         else:
-            raise SystemExit(f"fobc: unsupported opcode {op} at line {idx}")
+            raise SystemExit(f"fobc: unsupported opcode {op} at line {line_no}")
     return out
 
 def build_asm(instrs, asm_path, mode='elf'):
@@ -680,6 +788,16 @@ def build_asm(instrs, asm_path, mode='elf'):
 
 def main():
     args = sys.argv[1:]
+    if '--version' in args or '-v' in args:
+        print("fobc v0.8")
+        sys.exit(0)
+    if '--help' in args or '-h' in args:
+        print("fobc v0.8 — FOB → native compiler (via FASM)")
+        print("usage: fobc [--efi] input.fob output")
+        print("  --efi        emit PE32+ UEFI application instead of ELF64")
+        print("  -v, --version")
+        print("  -h, --help")
+        sys.exit(0)
     mode = 'elf'
     if '--efi' in args:
         args.remove('--efi'); mode = 'efi'
