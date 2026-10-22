@@ -1,15 +1,14 @@
-# FOB source files — treat as FOB language
-*.fob linguist-language=FOB
-*.asm linguist-language=FOB
-src/fob.asm linguist-language=FOB
+# FOB source files use x86-64-flavoured assembly syntax;
+# map to a known language so GitHub shows a proper language bar.
+*.fob linguist-language=Assembly
+*.asm linguist-language=Assembly
 
-# Tools and tests are auxiliary — exclude from language statistics
-tools/*.py linguist-documentation
-tools/csum.py linguist-documentation
-tools/fobc.py linguist-documentation
-tests/run_tests.sh linguist-documentation
-Makefile linguist-documentation
+# Third-party tooling and generated code — exclude from language stats
+tools/*.py linguist-vendored
+tools/csum.py linguist-vendored
+tools/fobc.py linguist-vendored
+tests/run_tests.sh linguist-vendored
 
-# Docs
+# Prose and licenses
 *.md linguist-documentation
 LICENSE linguist-documentation
