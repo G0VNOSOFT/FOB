@@ -3,6 +3,7 @@
 ![version](https://img.shields.io/badge/version-1.0-blue)
 ![license](https://img.shields.io/badge/license-MIT-green)
 ![platform](https://img.shields.io/badge/platform-Linux%20%7C%20UEFI-orange)
+![tests](https://github.com/G0VNOSOFT/FOB/actions/workflows/test.yml/badge.svg)
 
 A low-level programming language. Hex opcodes. 16 registers. Direct memory access.
 Compiles to native x86-64 ELF or to UEFI PE32+ .efi.
