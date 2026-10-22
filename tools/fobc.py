@@ -163,6 +163,30 @@ def emit(instrs, mode='elf'):
             out.append(f"    mov rax, [regs + {r1}*8]")
             out.append("    shr rax, cl")
             out.append(f"    mov [regs + {r1}*8], rax")
+        elif op == '0x1A':  # LOADR r_dst r_ptr
+            r1 = int(a[0][1][1:], 16); r2 = int(a[1][1][1:], 16)
+            out.append(f"    mov rcx, [regs + {r2}*8]")
+            out.append("    lea r11, [mem]")
+            out.append("    mov rax, [r11 + rcx]")
+            out.append(f"    mov [regs + {r1}*8], rax")
+        elif op == '0x1B':  # STORER r_ptr r_val
+            r1 = int(a[0][1][1:], 16); r2 = int(a[1][1][1:], 16)
+            out.append(f"    mov rcx, [regs + {r1}*8]")
+            out.append(f"    mov rax, [regs + {r2}*8]")
+            out.append("    lea r11, [mem]")
+            out.append("    mov [r11 + rcx], rax")
+        elif op == '0x1C':  # LOADBR r_dst r_ptr
+            r1 = int(a[0][1][1:], 16); r2 = int(a[1][1][1:], 16)
+            out.append(f"    mov rcx, [regs + {r2}*8]")
+            out.append("    lea r11, [mem]")
+            out.append("    movzx eax, byte [r11 + rcx]")
+            out.append(f"    mov [regs + {r1}*8], rax")
+        elif op == '0x1D':  # STOREBR r_ptr r_val
+            r1 = int(a[0][1][1:], 16); r2 = int(a[1][1][1:], 16)
+            out.append(f"    mov rcx, [regs + {r1}*8]")
+            out.append(f"    mov rax, [regs + {r2}*8]")
+            out.append("    lea r11, [mem]")
+            out.append("    mov [r11 + rcx], al")
         elif op == '0x28':  # NEG
             r = int(a[0][1][1:], 16)
             out.append(f"    neg qword [regs + {r}*8]")

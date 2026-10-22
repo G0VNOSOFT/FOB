@@ -1,0 +1,58 @@
+0xF4CK 0xFF B1NǎRY
+0xA0 @0 "\n"
+0xA0 @500 "v0.7b ALL OK\n"
+
+; --- STOREBR: построить "ABC\0" в mem[100] побайтово ---
+0x10 r0 #41            ; 'A'
+0x10 r1 #100
+0x1D r1 r0             ; mem[100] = 'A'
+0x2C r0 #1
+0x2C r1 #1
+0x1D r1 r0             ; mem[101] = 'B'
+0x2C r0 #1
+0x2C r1 #1
+0x1D r1 r0             ; mem[102] = 'C'
+0x10 r0 #0
+0x2C r1 #1
+0x1D r1 r0             ; mem[103] = 0
+
+; --- PRINTS из построенной строки ---
+0x10 r0 #100
+0x50 r0                ; "ABC"
+0x10 r5 #0
+0x50 r5                ; newline
+
+; --- STORER / LOADR roundtrip ---
+0x10 r0 #DEADBEEF
+0x10 r1 #200
+0x1B r1 r0             ; mem[200] = 0xDEADBEEF
+0x1A r2 r1             ; r2 = mem[200]
+0x52 r2                ; 3735928559
+0x10 r5 #0
+0x50 r5
+
+; --- LOADBR байтов из "ABC" ---
+0x10 r1 #100
+0x1C r3 r1             ; r3 = mem[100] = 'A' = 65
+0x52 r3
+0x10 r5 #0
+0x50 r5
+0x2C r1 #1             ; ptr = 101
+0x1C r4 r1             ; r4 = mem[101] = 'B' = 66
+0x52 r4
+0x10 r5 #0
+0x50 r5
+
+; --- Verify LOADR against computed ptr ---
+0x10 r1 #200
+0x1A r2 r1
+0x10 r3 #DEADBEEF
+0x30 r2 r3
+0x42 :ok
+0x10 r0 #500
+0x50 r0
+0x01
+0x70 :ok
+0x10 r0 #500
+0x50 r0
+0x01

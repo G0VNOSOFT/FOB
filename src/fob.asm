@@ -583,6 +583,14 @@ execute:
     je  .op_push
     cmp bl, 0x15
     je  .op_pop
+    cmp bl, 0x1A
+    je  .op_loadr
+    cmp bl, 0x1B
+    je  .op_storer
+    cmp bl, 0x1C
+    je  .op_loadbr
+    cmp bl, 0x1D
+    je  .op_storebr
     cmp bl, 0x20
     je  .op_add
     cmp bl, 0x21
@@ -892,6 +900,84 @@ execute:
     mov [stk_ptr], rcx
     mov rsi, rax
     jmp .exec_loop
+
+.op_loadr:
+    call skip_ws
+    call parse_reg
+    cmp rax, -1
+    je  .exec_bad
+    mov r14, rax
+    call skip_ws
+    call parse_reg
+    cmp rax, -1
+    je  .exec_bad
+    lea rdi, [regs]
+    mov rcx, [rdi + rax*8]
+    cmp rcx, MEM_SIZE - 8
+    ja  .exec_bad
+    lea rdi, [mem]
+    mov rcx, [rdi + rcx]
+    lea rdi, [regs]
+    mov [rdi + r14*8], rcx
+    jmp .next_instr
+
+.op_storer:
+    call skip_ws
+    call parse_reg
+    cmp rax, -1
+    je  .exec_bad
+    mov r14, rax
+    call skip_ws
+    call parse_reg
+    cmp rax, -1
+    je  .exec_bad
+    lea rdi, [regs]
+    mov rcx, [rdi + r14*8]
+    cmp rcx, MEM_SIZE - 8
+    ja  .exec_bad
+    mov rax, [rdi + rax*8]
+    lea rdi, [mem]
+    mov [rdi + rcx], rax
+    jmp .next_instr
+
+.op_loadbr:
+    call skip_ws
+    call parse_reg
+    cmp rax, -1
+    je  .exec_bad
+    mov r14, rax
+    call skip_ws
+    call parse_reg
+    cmp rax, -1
+    je  .exec_bad
+    lea rdi, [regs]
+    mov rcx, [rdi + rax*8]
+    cmp rcx, MEM_SIZE
+    jae .exec_bad
+    lea rdi, [mem]
+    movzx rax, byte [rdi + rcx]
+    lea rdi, [regs]
+    mov [rdi + r14*8], rax
+    jmp .next_instr
+
+.op_storebr:
+    call skip_ws
+    call parse_reg
+    cmp rax, -1
+    je  .exec_bad
+    mov r14, rax
+    call skip_ws
+    call parse_reg
+    cmp rax, -1
+    je  .exec_bad
+    lea rdi, [regs]
+    mov rcx, [rdi + r14*8]
+    cmp rcx, MEM_SIZE
+    jae .exec_bad
+    mov rax, [rdi + rax*8]
+    lea rdi, [mem]
+    mov [rdi + rcx], al
+    jmp .next_instr
 
 .op_mul:
     call skip_ws
