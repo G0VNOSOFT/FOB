@@ -1,13 +1,13 @@
-# FOB source files use x86-64-flavoured assembly syntax;
-# map to a known language so GitHub shows a proper language bar.
+# FOB source files — assembly-flavoured syntax, use Assembly grammar for highlighting
 *.fob linguist-language=Assembly
 *.asm linguist-language=Assembly
 
-# Third-party tooling and generated code — exclude from language stats
+# Vendored tooling — exclude from language stats
 tools/*.py linguist-vendored
 tools/csum.py linguist-vendored
 tools/fobc.py linguist-vendored
 tests/run_tests.sh linguist-vendored
+Makefile linguist-vendored
 
 # Prose and licenses
 *.md linguist-documentation
