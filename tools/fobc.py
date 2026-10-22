@@ -163,12 +163,36 @@ def emit(instrs, mode='elf'):
             out.append(f"    mov rax, [regs + {r1}*8]")
             out.append("    shr rax, cl")
             out.append(f"    mov [regs + {r1}*8], rax")
+        elif op == '0x28':  # NEG
+            r = int(a[0][1][1:], 16)
+            out.append(f"    neg qword [regs + {r}*8]")
+        elif op == '0x29':  # NOT
+            r = int(a[0][1][1:], 16)
+            out.append(f"    not qword [regs + {r}*8]")
+        elif op == '0x2C':  # ADDI
+            r = int(a[0][1][1:], 16); v = a[1][1][1:]
+            out.append(f"    mov rax, 0x{v}")
+            out.append(f"    add [regs + {r}*8], rax")
+        elif op == '0x2D':  # SUBI
+            r = int(a[0][1][1:], 16); v = a[1][1][1:]
+            out.append(f"    mov rax, 0x{v}")
+            out.append(f"    sub [regs + {r}*8], rax")
+        elif op == '0x2E':  # CMPI
+            r = int(a[0][1][1:], 16); v = a[1][1][1:]
+            out.append(f"    mov rax, [regs + {r}*8]")
+            out.append(f"    cmp rax, 0x{v}")
+            out.append("    sete al")
+            out.append("    mov [zf], al")
+            out.append("    pushfq")
+            out.append("    pop qword [saved_flags]")
         elif op == '0x30':  # CMP
             r1 = int(a[0][1][1:], 16); r2 = int(a[1][1][1:], 16)
             out.append(f"    mov rax, [regs + {r1}*8]")
             out.append(f"    cmp rax, [regs + {r2}*8]")
             out.append("    sete al")
             out.append("    mov [zf], al")
+            out.append("    pushfq")
+            out.append("    pop qword [saved_flags]")
         elif op == '0x40':  # JMP
             out.append(f"    jmp {LBL(a[0][1][1:])}")
         elif op == '0x41':  # JZ
@@ -187,6 +211,38 @@ def emit(instrs, mode='elf'):
             out.append(f"    call {LBL(a[0][1][1:])}")
         elif op == '0x44':  # RET
             out.append("    ret")
+        elif op == '0x45':  # JL
+            out.append("    push qword [saved_flags]")
+            out.append("    popfq")
+            out.append(f"    jl {LBL(a[0][1][1:])}")
+        elif op == '0x46':  # JG
+            out.append("    push qword [saved_flags]")
+            out.append("    popfq")
+            out.append(f"    jg {LBL(a[0][1][1:])}")
+        elif op == '0x47':  # JLE
+            out.append("    push qword [saved_flags]")
+            out.append("    popfq")
+            out.append(f"    jle {LBL(a[0][1][1:])}")
+        elif op == '0x48':  # JGE
+            out.append("    push qword [saved_flags]")
+            out.append("    popfq")
+            out.append(f"    jge {LBL(a[0][1][1:])}")
+        elif op == '0x49':  # JB
+            out.append("    push qword [saved_flags]")
+            out.append("    popfq")
+            out.append(f"    jb {LBL(a[0][1][1:])}")
+        elif op == '0x4A':  # JA
+            out.append("    push qword [saved_flags]")
+            out.append("    popfq")
+            out.append(f"    ja {LBL(a[0][1][1:])}")
+        elif op == '0x4B':  # JBE
+            out.append("    push qword [saved_flags]")
+            out.append("    popfq")
+            out.append(f"    jbe {LBL(a[0][1][1:])}")
+        elif op == '0x4C':  # JAE
+            out.append("    push qword [saved_flags]")
+            out.append("    popfq")
+            out.append(f"    jae {LBL(a[0][1][1:])}")
         elif op == '0x50':  # PRINTS r
             r = int(a[0][1][1:], 16); u = U()
             out.append(f"    mov rax, [regs + {r}*8]")
@@ -254,6 +310,82 @@ def emit(instrs, mode='elf'):
             for k, ch in enumerate(s):
                 out.append(f"    mov word [mem + 0x{ad+k*2:x}], 0x{ord(ch):04x}")
             out.append(f"    mov word [mem + 0x{ad+len(s)*2:x}], 0")
+        elif op == '0x80':  # OUTB #port rN
+            if mode != 'efi':
+                raise SystemExit("fobc: 0x80 OUTB requires --efi")
+            port = int(a[0][1][1:], 16); r = int(a[1][1][1:], 16)
+            out.append(f"    mov dx, 0x{port:x}")
+            out.append(f"    mov al, [regs + {r}*8]")
+            out.append("    out dx, al")
+        elif op == '0x81':  # INB rN #port
+            if mode != 'efi':
+                raise SystemExit("fobc: 0x81 INB requires --efi")
+            r = int(a[0][1][1:], 16); port = int(a[1][1][1:], 16)
+            out.append(f"    mov dx, 0x{port:x}")
+            out.append("    in al, dx")
+            out.append("    movzx eax, al")
+            out.append(f"    mov [regs + {r}*8], rax")
+        elif op == '0x82':  # OUTW #port rN
+            if mode != 'efi':
+                raise SystemExit("fobc: 0x82 OUTW requires --efi")
+            port = int(a[0][1][1:], 16); r = int(a[1][1][1:], 16)
+            out.append(f"    mov dx, 0x{port:x}")
+            out.append(f"    mov ax, [regs + {r}*8]")
+            out.append("    out dx, ax")
+        elif op == '0x83':  # INW rN #port
+            if mode != 'efi':
+                raise SystemExit("fobc: 0x83 INW requires --efi")
+            r = int(a[0][1][1:], 16); port = int(a[1][1][1:], 16)
+            out.append(f"    mov dx, 0x{port:x}")
+            out.append("    in ax, dx")
+            out.append("    movzx eax, ax")
+            out.append(f"    mov [regs + {r}*8], rax")
+        elif op == '0x8A':  # OUTL #port rN
+            if mode != 'efi':
+                raise SystemExit("fobc: 0x8A OUTL requires --efi")
+            port = int(a[0][1][1:], 16); r = int(a[1][1][1:], 16)
+            out.append(f"    mov dx, 0x{port:x}")
+            out.append(f"    mov eax, [regs + {r}*8]")
+            out.append("    out dx, eax")
+        elif op == '0x8B':  # INL rN #port
+            if mode != 'efi':
+                raise SystemExit("fobc: 0x8B INL requires --efi")
+            r = int(a[0][1][1:], 16); port = int(a[1][1][1:], 16)
+            out.append(f"    mov dx, 0x{port:x}")
+            out.append("    in eax, dx")
+            out.append(f"    mov [regs + {r}*8], rax")
+        elif op == '0x84':  # HLT
+            if mode != 'efi':
+                raise SystemExit("fobc: 0x84 HLT requires --efi")
+            out.append("    hlt")
+        elif op == '0x85':  # CLI
+            if mode != 'efi':
+                raise SystemExit("fobc: 0x85 CLI requires --efi")
+            out.append("    cli")
+        elif op == '0x86':  # STI
+            if mode != 'efi':
+                raise SystemExit("fobc: 0x86 STI requires --efi")
+            out.append("    sti")
+        elif op == '0x87':  # RDMSR: r0 = index -> r0 = eax, r1 = edx
+            if mode != 'efi':
+                raise SystemExit("fobc: 0x87 RDMSR requires --efi")
+            out.append("    mov rcx, [regs + 0*8]")
+            out.append("    rdmsr")
+            out.append("    mov [regs + 0*8], rax")
+            out.append("    mov [regs + 1*8], rdx")
+        elif op == '0x88':  # WRMSR: r0 = index, r1 = lo, r2 = hi
+            if mode != 'efi':
+                raise SystemExit("fobc: 0x88 WRMSR requires --efi")
+            out.append("    mov rcx, [regs + 0*8]")
+            out.append("    mov rax, [regs + 1*8]")
+            out.append("    mov rdx, [regs + 2*8]")
+            out.append("    wrmsr")
+        elif op == '0x93':  # EFI_PRINTI rN
+            if mode != 'efi':
+                raise SystemExit("fobc: 0x93 EFI_PRINTI requires --efi")
+            r = int(a[0][1][1:], 16)
+            out.append(f"    mov rax, [regs + {r}*8]")
+            out.append("    call fob_efi_print_int")
         elif op == '0x92':  # EFI_WAIT_KEY
             if mode != 'efi':
                 raise SystemExit("fobc: 0x92 EFI_WAIT_KEY requires --efi")
@@ -275,6 +407,82 @@ def emit(instrs, mode='elf'):
             out.append("    lea r8, [rsp + 24]")
             out.append("    call r9")
             out.append("    add rsp, 32")
+        elif op == '0x80':  # OUTB #port rN
+            if mode != 'efi':
+                raise SystemExit("fobc: 0x80 OUTB requires --efi")
+            port = int(a[0][1][1:], 16); r = int(a[1][1][1:], 16)
+            out.append(f"    mov dx, 0x{port:x}")
+            out.append(f"    mov al, [regs + {r}*8]")
+            out.append("    out dx, al")
+        elif op == '0x81':  # INB rN #port
+            if mode != 'efi':
+                raise SystemExit("fobc: 0x81 INB requires --efi")
+            r = int(a[0][1][1:], 16); port = int(a[1][1][1:], 16)
+            out.append(f"    mov dx, 0x{port:x}")
+            out.append("    in al, dx")
+            out.append("    movzx eax, al")
+            out.append(f"    mov [regs + {r}*8], rax")
+        elif op == '0x82':  # OUTW #port rN
+            if mode != 'efi':
+                raise SystemExit("fobc: 0x82 OUTW requires --efi")
+            port = int(a[0][1][1:], 16); r = int(a[1][1][1:], 16)
+            out.append(f"    mov dx, 0x{port:x}")
+            out.append(f"    mov ax, [regs + {r}*8]")
+            out.append("    out dx, ax")
+        elif op == '0x83':  # INW rN #port
+            if mode != 'efi':
+                raise SystemExit("fobc: 0x83 INW requires --efi")
+            r = int(a[0][1][1:], 16); port = int(a[1][1][1:], 16)
+            out.append(f"    mov dx, 0x{port:x}")
+            out.append("    in ax, dx")
+            out.append("    movzx eax, ax")
+            out.append(f"    mov [regs + {r}*8], rax")
+        elif op == '0x8A':  # OUTL #port rN
+            if mode != 'efi':
+                raise SystemExit("fobc: 0x8A OUTL requires --efi")
+            port = int(a[0][1][1:], 16); r = int(a[1][1][1:], 16)
+            out.append(f"    mov dx, 0x{port:x}")
+            out.append(f"    mov eax, [regs + {r}*8]")
+            out.append("    out dx, eax")
+        elif op == '0x8B':  # INL rN #port
+            if mode != 'efi':
+                raise SystemExit("fobc: 0x8B INL requires --efi")
+            r = int(a[0][1][1:], 16); port = int(a[1][1][1:], 16)
+            out.append(f"    mov dx, 0x{port:x}")
+            out.append("    in eax, dx")
+            out.append(f"    mov [regs + {r}*8], rax")
+        elif op == '0x84':  # HLT
+            if mode != 'efi':
+                raise SystemExit("fobc: 0x84 HLT requires --efi")
+            out.append("    hlt")
+        elif op == '0x85':  # CLI
+            if mode != 'efi':
+                raise SystemExit("fobc: 0x85 CLI requires --efi")
+            out.append("    cli")
+        elif op == '0x86':  # STI
+            if mode != 'efi':
+                raise SystemExit("fobc: 0x86 STI requires --efi")
+            out.append("    sti")
+        elif op == '0x87':  # RDMSR: r0 = index -> r0 = eax, r1 = edx
+            if mode != 'efi':
+                raise SystemExit("fobc: 0x87 RDMSR requires --efi")
+            out.append("    mov rcx, [regs + 0*8]")
+            out.append("    rdmsr")
+            out.append("    mov [regs + 0*8], rax")
+            out.append("    mov [regs + 1*8], rdx")
+        elif op == '0x88':  # WRMSR: r0 = index, r1 = lo, r2 = hi
+            if mode != 'efi':
+                raise SystemExit("fobc: 0x88 WRMSR requires --efi")
+            out.append("    mov rcx, [regs + 0*8]")
+            out.append("    mov rax, [regs + 1*8]")
+            out.append("    mov rdx, [regs + 2*8]")
+            out.append("    wrmsr")
+        elif op == '0x93':  # EFI_PRINTI rN
+            if mode != 'efi':
+                raise SystemExit("fobc: 0x93 EFI_PRINTI requires --efi")
+            r = int(a[0][1][1:], 16)
+            out.append(f"    mov rax, [regs + {r}*8]")
+            out.append("    call fob_efi_print_int")
         elif op == '0x92':  # EFI_WAIT_KEY
             if mode != 'efi':
                 raise SystemExit("fobc: 0x92 EFI_WAIT_KEY requires --efi")
@@ -332,12 +540,56 @@ def build_asm(instrs, asm_path, mode='elf'):
         A.append("    xor eax, eax")
         A.append("    ret")
         A.append("")
+        A.append("fob_efi_print_int:")
+        A.append("    push rbx")
+        A.append("    push rcx")
+        A.append("    push rdx")
+        A.append("    push rsi")
+        A.append("    push rdi")
+        A.append("    push r12")
+        A.append("    lea rdi, [fob_efi_ibuf + 62]")
+        A.append("    mov word [rdi], 0")
+        A.append("    mov rbx, 10")
+        A.append("    xor ecx, ecx")
+        A.append("    test rax, rax")
+        A.append("    jns .epos")
+        A.append("    neg rax")
+        A.append("    mov ecx, 1")
+        A.append(".epos:")
+        A.append(".eloop:")
+        A.append("    xor edx, edx")
+        A.append("    div rbx")
+        A.append("    add dl, '0'")
+        A.append("    sub rdi, 2")
+        A.append("    mov [rdi], dx")
+        A.append("    test rax, rax")
+        A.append("    jnz .eloop")
+        A.append("    test ecx, ecx")
+        A.append("    jz .eprint")
+        A.append("    sub rdi, 2")
+        A.append("    mov word [rdi], '-'")
+        A.append(".eprint:")
+        A.append("    mov rdx, rdi")
+        A.append("    mov rcx, [r12 + 0x40]")
+        A.append("    sub rsp, 32")
+        A.append("    call qword [rcx + 0x08]")
+        A.append("    add rsp, 32")
+        A.append("    pop r12")
+        A.append("    pop rdi")
+        A.append("    pop rsi")
+        A.append("    pop rdx")
+        A.append("    pop rcx")
+        A.append("    pop rbx")
+        A.append("    ret")
+        A.append("")
         A.append("section '.data' data readable writeable")
         A.append("regs: rq 16")
         A.append("mem: rb 65536")
         A.append("zf: db 0")
         A.append("stk_ptr: dq 65536")
         A.append("efi_saved_rsp: dq 0")
+        A.append("fob_efi_ibuf: rb 64")
+        A.append("saved_flags: dq 0")
         Path(asm_path).write_text('\n'.join(A) + '\n')
         return
 
@@ -399,6 +651,7 @@ def build_asm(instrs, asm_path, mode='elf'):
     A.append("zf: db 0")
     A.append("stk_ptr: dq 65536")
     A.append("fob_ibuf: rb 32")
+    A.append("saved_flags: dq 0")
     Path(asm_path).write_text('\n'.join(A) + '\n')
 
 def main():

@@ -599,6 +599,16 @@ execute:
     je  .op_shl
     cmp bl, 0x27
     je  .op_shr
+    cmp bl, 0x28
+    je  .op_neg
+    cmp bl, 0x29
+    je  .op_not
+    cmp bl, 0x2C
+    je  .op_addi
+    cmp bl, 0x2D
+    je  .op_subi
+    cmp bl, 0x2E
+    je  .op_cmpi
     cmp bl, 0x30
     je  .op_cmp
     cmp bl, 0x40
@@ -611,6 +621,22 @@ execute:
     je  .op_call
     cmp bl, 0x44
     je  .op_ret
+    cmp bl, 0x45
+    je  .op_jl
+    cmp bl, 0x46
+    je  .op_jg
+    cmp bl, 0x47
+    je  .op_jle
+    cmp bl, 0x48
+    je  .op_jge
+    cmp bl, 0x49
+    je  .op_jb
+    cmp bl, 0x4A
+    je  .op_ja
+    cmp bl, 0x4B
+    je  .op_jbe
+    cmp bl, 0x4C
+    je  .op_jae
     cmp bl, 0x50
     je  .op_prints
     cmp bl, 0x51
@@ -759,8 +785,10 @@ execute:
     je  .exec_bad
     lea rdi, [regs]
     mov rcx, [rdi + r14*8]
-    sub rcx, [rdi + rax*8]
+    cmp rcx, [rdi + rax*8]
     setz byte [zf]
+    pushfq
+    pop qword [saved_flags]
     jmp .next_instr
 
 .op_jmp:
@@ -981,6 +1009,181 @@ execute:
     mov [rdi + 0*8], rax
     jmp .next_instr
 
+.op_neg:
+    call skip_ws
+    call parse_reg
+    cmp rax, -1
+    je  .exec_bad
+    lea rdi, [regs]
+    neg qword [rdi + rax*8]
+    jmp .next_instr
+
+.op_not:
+    call skip_ws
+    call parse_reg
+    cmp rax, -1
+    je  .exec_bad
+    lea rdi, [regs]
+    not qword [rdi + rax*8]
+    jmp .next_instr
+
+.op_addi:
+    call skip_ws
+    call parse_reg
+    cmp rax, -1
+    je  .exec_bad
+    mov r14, rax
+    call skip_ws
+    cmp byte [rsi], '#'
+    jne .exec_bad
+    inc rsi
+    call parse_hex
+    lea rdi, [regs]
+    add [rdi + r14*8], rax
+    jmp .next_instr
+
+.op_subi:
+    call skip_ws
+    call parse_reg
+    cmp rax, -1
+    je  .exec_bad
+    mov r14, rax
+    call skip_ws
+    cmp byte [rsi], '#'
+    jne .exec_bad
+    inc rsi
+    call parse_hex
+    lea rdi, [regs]
+    sub [rdi + r14*8], rax
+    jmp .next_instr
+
+.op_cmpi:
+    call skip_ws
+    call parse_reg
+    cmp rax, -1
+    je  .exec_bad
+    mov r14, rax
+    call skip_ws
+    cmp byte [rsi], '#'
+    jne .exec_bad
+    inc rsi
+    call parse_hex
+    lea rdi, [regs]
+    mov rcx, [rdi + r14*8]
+    cmp rcx, rax
+    setz byte [zf]
+    pushfq
+    pop qword [saved_flags]
+    jmp .next_instr
+
+.op_jl:
+    call skip_ws
+    call parse_labelref
+    test rax, rax
+    jz  .exec_bad
+    call find_label
+    cmp rax, -1
+    je  .exec_bad
+    push qword [saved_flags]
+    popfq
+    jl .do_jump
+    jmp .next_instr
+
+.op_jg:
+    call skip_ws
+    call parse_labelref
+    test rax, rax
+    jz  .exec_bad
+    call find_label
+    cmp rax, -1
+    je  .exec_bad
+    push qword [saved_flags]
+    popfq
+    jg .do_jump
+    jmp .next_instr
+
+.op_jle:
+    call skip_ws
+    call parse_labelref
+    test rax, rax
+    jz  .exec_bad
+    call find_label
+    cmp rax, -1
+    je  .exec_bad
+    push qword [saved_flags]
+    popfq
+    jle .do_jump
+    jmp .next_instr
+
+.op_jge:
+    call skip_ws
+    call parse_labelref
+    test rax, rax
+    jz  .exec_bad
+    call find_label
+    cmp rax, -1
+    je  .exec_bad
+    push qword [saved_flags]
+    popfq
+    jge .do_jump
+    jmp .next_instr
+
+.op_jb:
+    call skip_ws
+    call parse_labelref
+    test rax, rax
+    jz  .exec_bad
+    call find_label
+    cmp rax, -1
+    je  .exec_bad
+    push qword [saved_flags]
+    popfq
+    jb .do_jump
+    jmp .next_instr
+
+.op_ja:
+    call skip_ws
+    call parse_labelref
+    test rax, rax
+    jz  .exec_bad
+    call find_label
+    cmp rax, -1
+    je  .exec_bad
+    push qword [saved_flags]
+    popfq
+    ja .do_jump
+    jmp .next_instr
+
+.op_jbe:
+    call skip_ws
+    call parse_labelref
+    test rax, rax
+    jz  .exec_bad
+    call find_label
+    cmp rax, -1
+    je  .exec_bad
+    push qword [saved_flags]
+    popfq
+    jbe .do_jump
+    jmp .next_instr
+
+.op_jae:
+    call skip_ws
+    call parse_labelref
+    test rax, rax
+    jz  .exec_bad
+    call find_label
+    cmp rax, -1
+    je  .exec_bad
+    push qword [saved_flags]
+    popfq
+    jae .do_jump
+    jmp .next_instr
+
+.do_jump:
+    mov rsi, rax
+    jmp .exec_loop
+
 .op_prints:
     call skip_ws
     call parse_reg
@@ -1097,6 +1300,7 @@ label_table: rb LABELS_MAX * 24
 tmp_char:    db 0
 stk_ptr:     dq MEM_SIZE
 checksum_mode: db 0
+saved_flags: dq 0
 tmp_num:     rb 32
 
 hdr_str: db '0xF4CK 0xFF B1N', 0xC7, 0x8E, 'RY'
