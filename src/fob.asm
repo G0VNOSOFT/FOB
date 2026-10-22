@@ -1630,9 +1630,9 @@ tmp_num:     rb 32
 hdr_str: db '0xF4CK 0xFF B1N', 0xC7, 0x8E, 'RY'
 hdr_len = $ - hdr_str
 
-msg_usage:   db 'FOB v0.8 | usage: fob [-c] <file.fob>', 10, 0
-msg_version: db 'FOB v0.8', 10, 0
-msg_help:    db 'FOB v0.8 — 0xF4CK 0xFF B1N', 0xC7, 0x8E, 'RY interpreter', 10
+msg_usage:   db 'FOB v1.0 | usage: fob [-c] <file.fob>', 10, 0
+msg_version: db 'FOB v1.0', 10, 0
+msg_help:    db 'FOB v1.0 — 0xF4CK 0xFF B1N', 0xC7, 0x8E, 'RY interpreter', 10
              db 'usage: fob [options] <file.fob>', 10
              db '  -c           require checksum |XX on every instruction', 10
              db '  -v --version print version and exit', 10

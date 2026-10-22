@@ -789,10 +789,10 @@ def build_asm(instrs, asm_path, mode='elf'):
 def main():
     args = sys.argv[1:]
     if '--version' in args or '-v' in args:
-        print("fobc v0.8")
+        print("fobc v1.0")
         sys.exit(0)
     if '--help' in args or '-h' in args:
-        print("fobc v0.8 — FOB → native compiler (via FASM)")
+        print("fobc v1.0 — FOB → native compiler (via FASM)")
         print("usage: fobc [--efi] input.fob output")
         print("  --efi        emit PE32+ UEFI application instead of ELF64")
         print("  -v, --version")
