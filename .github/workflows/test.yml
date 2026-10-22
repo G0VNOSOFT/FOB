@@ -1,0 +1,27 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install fasm
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y wget tar make gcc python3
+          wget -q https://flatassembler.net/fasm-1.73.32.tgz
+          tar xzf fasm-1.73.32.tgz
+          cd fasm && make && sudo install -m 0755 fasm /usr/local/bin/fasm
+
+      - name: Build
+        run: make build
+
+      - name: Run tests
+        run: make test
